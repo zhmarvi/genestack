@@ -84,6 +84,9 @@ magnum_admin_password=$(generate_password 32)
 masakari_rabbitmq_password=$(generate_password 64)
 masakari_db_password=$(generate_password 32)
 masakari_admin_password=$(generate_password 32)
+cloudkitty_rabbitmq_password=$(generate_password 64)
+cloudkitty_db_password=$(generate_password 32)
+cloudkitty_admin_password=$(generate_password 32)
 postgresql_identity_admin_password=$(generate_password 32)
 postgresql_db_admin_password=$(generate_password 32)
 postgresql_db_exporter_password=$(generate_password 32)
@@ -546,6 +549,34 @@ metadata:
 type: Opaque
 data:
   password: $(echo -n $masakari_admin_password | base64 -w0)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudkitty-rabbitmq-password
+  namespace: openstack
+type: Opaque
+data:
+  username: $(echo -n "cloudkitty" | base64)
+  password: $(echo -n $cloudkitty_rabbitmq_password | base64 -w0)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudkitty-db-password
+  namespace: openstack
+type: Opaque
+data:
+  password: $(echo -n $cloudkitty_db_password | base64 -w0)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudkitty-admin
+  namespace: openstack
+type: Opaque
+data:
+  password: $(echo -n $cloudkitty_admin_password | base64 -w0)
 ---
 apiVersion: v1
 kind: Secret
