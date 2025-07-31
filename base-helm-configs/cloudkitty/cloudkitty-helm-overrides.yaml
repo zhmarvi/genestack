@@ -34,6 +34,9 @@ labels:
   cloudkitty:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
+  processor:
+    node_selector_key: openstack-control-plane
+    node_selector_value: enabled
   job:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
