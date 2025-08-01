@@ -14,7 +14,7 @@
 images:
   tags:
     db_init: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    db_sync: docker.io/openstackhelm/cloudkitty:2024.1-ubuntu_jammy
+    db_sync: kernelpanic53/rackerlabs-cloudkitty:zhmarvi-ubuntu_jammy_0.1 
     db_drop: quay.io/airshipit/heat:2024.1-ubuntu_jammy
     ks_endpoints: quay.io/airshipit/heat:2024.1-ubuntu_jammy
     ks_service: quay.io/airshipit/heat:2024.1-ubuntu_jammy
@@ -100,9 +100,9 @@ endpoints:
         username: cloudkitty
         password: password
     hosts:
-      default: mariadb
+      default: mariadb-cluster-primary
     host_fqdn_override:
-      default: null
+      default: mariadb-cluster-primary.openstack.svc.cluster.local
     path: /cloudkitty
     scheme: mysql+pymysql
     port:
@@ -164,7 +164,7 @@ endpoints:
     hosts:
       default: rabbitmq
     host_fqdn_override:
-      default: null
+      default: rabbitmq.openstack.svc.cluster.local
     path: /cloudkitty
     scheme: rabbit
     port:
@@ -183,7 +183,7 @@ endpoints:
     hosts:
       default: memcached
     host_fqdn_override:
-      default: null
+      default: memcached.openstack.svc.cluster.local
     port:
       memcache:
         default: 11211
@@ -539,7 +539,7 @@ network:
 manifests:
   job_ks_user: true
   job_db_sync: true
-  job_db_init: true
+  job_db_init: false
   job_db_drop: false
   job_ks_endpoints: true
   job_ks_service: true
@@ -551,8 +551,6 @@ manifests:
   secret_rabbitmq: true
   secret_keystone: true
   secret_registry: true
-  job_rabbit_init: true
+  job_rabbit_init: false
   service_api: true
   pdb_api: true
-  cloudkitty-processor: true
-...
