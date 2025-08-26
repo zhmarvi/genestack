@@ -15,7 +15,7 @@ images:
     octavia_health_manager_init: "ghcr.io/rackerlabs/genestack-images/heat:2024.1-latest"
     octavia_housekeeping: "ghcr.io/rackerlabs/genestack-images/octavia:2024.1-latest"
     octavia_worker: "ghcr.io/rackerlabs/genestack-images/octavia:2024.1-latest"
-    openvswitch_vswitchd: "docker.io/kolla/centos-source-openvswitch-vswitchd:rocky"
+    openvswitch_vswitchd: "ghcr.io/rackerlabs/genestack-images/ovs:v3.5.1-latest"
     rabbit_init: null
     test: null
 
@@ -75,6 +75,8 @@ conf:
       use_db_reconnect: true
       pool_timeout: 60
       max_retries: -1
+      max_overflow: 60
+      max_pool_size: 30
     driver_agent:
       enabled_provider_agents: ovn
     glance:

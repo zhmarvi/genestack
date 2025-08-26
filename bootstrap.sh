@@ -21,27 +21,42 @@ cd "${BASEDIR}" || error "Could not change to ${BASEDIR}"
 
 source scripts/lib/functions.sh
 
-set -e
-
 success "Environment variables:"
 env | grep -E '^(SUDO|RPC_|ANSIBLE_|GENESTACK_|K8S|CONTAINER_|OPENSTACK_|OSH_)' | sort -u
 
-success "Installing base packages (git):"
-apt update
+# Explictily do not exit script on non-zero returns
+set +e
 
-DEBIAN_FRONTEND=noninteractive \
-  apt-get -o "Dpkg::Options::=--force-confdef" \
-          -o "Dpkg::Options::=--force-confold" \
-          -qy install git python3-pip python3-venv python3-dev jq build-essential > ~/genestack-base-package-install.log 2>&1
+# Wait until cloud-init is finished before proceeding
+echo "Waiting for cloud-init to finish..."
+wait_for_cloud_init
+
+if [[ $? -eq 0 ]]; then
+    echo "Cloud-init completed successfully!"
+elif [[ $? -eq 1 ]]; then
+    echo "Cloud-init crashed or experienced a serious issue."
+elif [[ $? -eq 2 ]]; then
+    echo "Cloud-init completed with errors."
+else
+    echo "Cloud-init command not found."
+fi
+
+# NOTE: (brew) This function will determine wether DNF or APT should be used
+#       to install packages and will install them.
+#       Package: scripts/lib/funcitons.sh ['apt_packages', 'dnf_packages']
+wait_and_install_packages
 
 if [ $? -gt 1 ]; then
   error "Check for ansible errors at ~/genestack-base-package-install.log"
 else
-  success "Local base OS packages installed"
+  success "Local base OS packages installed."
 fi
 
+# Set script to exit on any non-zero error code
+set -e
+
 # Install project dependencies
-success "Installing genestack dependencies"
+success "Configuring genestack directory and overrides directory structure:"
 test -L "$GENESTACK_CONFIG" 2>&1 || mkdir -p "${GENESTACK_CONFIG}"
 
 # Set config
@@ -60,14 +75,14 @@ test -d "$GENESTACK_CONFIG/gateway-api" || cp -a "${BASEDIR}/etc/gateway-api" "$
 # Create venv and prepare Ansible
 python3 -m venv "${HOME}/.venvs/genestack"
 "${HOME}/.venvs/genestack/bin/pip" install pip --upgrade
-source "${HOME}/.venvs/genestack/bin/activate" && success "Switched to venv ~/.venvs/genestack"
-pip install -r "${BASEDIR}/requirements.txt" && success "Installed ansible package"
+source "${HOME}/.venvs/genestack/bin/activate" && success "Switched to venv ~/.venvs/genestack."
+pip install -r "${BASEDIR}/requirements.txt" && success "Installed ansible package."
 ansible-playbook "${BASEDIR}/scripts/get-ansible-collection-requirements.yml" \
   -e collections_file="${ANSIBLE_COLLECTION_FILE}" \
   -e user_collections_file="${USER_COLLECTION_FILE}"
 
 source  "${BASEDIR}/scripts/genestack.rc"
-success "Environment sourced per ${BASEDIR}/scripts/genestack.rc"
+success "Environment sourced per ${BASEDIR}/scripts/genestack.rc."
 
 message "OpenStack Release: ${OPENSTACK_RELEASE}"
 message "Target OS Distro: ${CONTAINER_DISTRO_NAME}:${CONTAINER_DISTRO_VERSION}"
@@ -90,24 +105,24 @@ for service in "$base_source_dir"/*; do
       # If no subdirectories, symlink the service directly under the target dir
       if [ ! -L "$base_target_dir/$service_name" ]; then
         ln -s "$service" "$base_target_dir/$service_name"
-        success "Created symlink for $service_name directly under $base_target_dir"
+        success "Created symlink for $service_name directly under $base_target_dir."
       else
-        message "Symlink for $service_name already exists directly under $base_target_dir"
+        message "Symlink for $service_name already exists directly under $base_target_dir."
       fi
     else
       if [ -d "$base_target_dir/$service_name" ]; then
-        message "$base_target_dir/$service_name already exists"
+        message "$base_target_dir/$service_name already exists."
       else
-        message "Creating $base_target_dir/$service_name"
+        message "Creating $base_target_dir/$service_name."
         mkdir -p "$base_target_dir/$service_name"
       fi
       for item in "$service"/*; do
         item_name=$(basename "$item")
         if [ ! -L "$base_target_dir/$service_name/$item_name" ]; then
           ln -s "$item" "$base_target_dir/$service_name/$item_name"
-          success "Created symlink for $service_name/$item_name"
+          success "Created symlink for $service_name/$item_name."
         else
-          message "Symlink for $service_name/$item_name already exists"
+          message "Symlink for $service_name/$item_name already exists."
         fi
       done
     fi
@@ -137,12 +152,12 @@ for service in "$overlay_target_dir"/*; do
 
     if [ ! -d "$overlay_path" ]; then
       mkdir -p "$overlay_path"
-      success "Creating overlay path $overlay_path"
+      success "Creating overlay path $overlay_path."
     fi
 
     if [ ! -f "$overlay_path/kustomization.yaml" ]; then
       echo "$kustomization_content" > "$overlay_path/kustomization.yaml"
-      success "Created overlay and kustomization.yaml for $(basename "$service")"
+      success "Created overlay and kustomization.yaml for $(basename "$service")."
     else
       message "kustomization.yaml already exists for $(basename "$service"), skipping..."
     fi
@@ -155,7 +170,7 @@ done
 
 if [ ! -d "/etc/genestack/helm-configs" ]; then
   mkdir -p /etc/genestack/helm-configs
-  success "Created /etc/genestack/helm-configs"
+  success "Created /etc/genestack/helm-configs."
 else
   message "/etc/genestack/helm-configs already exists, skipping creation."
 fi
@@ -166,7 +181,7 @@ for src_dir in /opt/genestack/base-helm-configs/*; do
     dest_dir="/etc/genestack/helm-configs/$dir_name"
     if [ ! -d "$dest_dir" ]; then
       mkdir -p "$dest_dir"
-      success "Created $dest_dir"
+      success "Created $dest_dir."
     else
       message "$dest_dir already exists, skipping creation."
     fi
@@ -175,7 +190,7 @@ done
 
 if [ ! -d "/etc/genestack/helm-configs/global_overrides" ]; then
   mkdir -p /etc/genestack/helm-configs/global_overrides
-  echo "Created /etc/genestack/helm-configs/global_overrides"
+  echo "Created /etc/genestack/helm-configs/global_overrides."
 else
   echo "/etc/genestack/helm-configs/global_overrides already exists, skipping creation."
 fi
@@ -183,9 +198,12 @@ fi
 # Copy manifests if it does not already exist
 if [ ! -d "/etc/genestack/manifests" ]; then
   cp -r /opt/genestack/manifests /etc/genestack/
-  success "Copied manifests to /etc/genestack/"
+  success "Copied manifests to /etc/genestack/."
 else
   message "manifests already exists in /etc/genestack, skipping copy."
 fi
+
+# Copy yaml editor to /usr/local/bin
+cp /opt/genestack/yaml-editor/ye /usr/local/bin/ye
 
 echo

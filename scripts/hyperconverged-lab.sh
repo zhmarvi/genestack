@@ -312,8 +312,9 @@ if [ "${HYPERCONVERGED_DEV:-false}" = "true" ]; then
     echo "HYPERCONVERGED_DEV is true, but we've failed to determine the base genestack directory"
     exit 1
   fi
+  # NOTE: (brew) we are assuming an Ubunut (apt) based instance here
   ssh -o ForwardAgent=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -t ${SSH_USERNAME}@${JUMP_HOST_VIP} \
-    "timeout 1m bash -c 'while ! sudo apt update; do sleep 2; done' && sudo apt install -y rsync git"
+  "while sudo fuser /var/{lib/{dpkg,apt/lists},cache/apt/archives}/lock >/dev/null 2>&1; do echo 'Waiting for apt locks to be released...'; sleep 5; done && sudo apt-get update && sudo apt install -y rsync git"
   echo "Copying the development source code to the jump host"
   rsync -az \
     -e "ssh -o ForwardAgent=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" \
@@ -323,10 +324,6 @@ fi
 
 ssh -o ForwardAgent=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -t ${SSH_USERNAME}@${JUMP_HOST_VIP} <<EOC
 set -e
-if ! command -v git &> /dev/null; then
-  echo "git could not be found, installing..."
-  sudo apt update && sudo apt install -y git
-fi
 if [ ! -d "/opt/genestack" ]; then
   sudo git clone --recurse-submodules -j4 https://github.com/rackerlabs/genestack /opt/genestack
 else
@@ -924,6 +921,30 @@ pushd /opt/kube-plugins
 popd
 EOC
 
+echo "Creating config for setup-openstack.sh"
+ssh -o ForwardAgent=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -t ${SSH_USERNAME}@${JUMP_HOST_VIP} <<EOC
+set -e
+if [ ! -f "/etc/genestack/openstack-components.yaml" ]; then
+cat > /etc/genestack/openstack-components.yaml <<EOF
+components:
+  keystone: true
+  glance: true
+  heat: true
+  barbican: true
+  cinder: true
+  placement: true
+  nova: true
+  neutron: true
+  magnum: true
+  octavia: false
+  masakari: false
+  ceilometer: false
+  gnocchi: false
+  skyline: true
+EOF
+fi
+EOC
+
 # Run Genestack Infrastucture/OpenStack Setup
 ssh -o ForwardAgent=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -t ${SSH_USERNAME}@${JUMP_HOST_VIP} <<EOC
 set -e
@@ -970,6 +991,46 @@ if ! openstack --os-cloud default subnet show flat_subnet; then
             flat_subnet
 fi
 HERE
+EOC
+
+echo "Installing k9s"
+ssh -o ForwardAgent=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -t ${SSH_USERNAME}@${JUMP_HOST_VIP} << 'EOC'
+set -e
+echo "Installing k9s"
+if [ ! -e "/usr/bin/k9s" ]; then
+  sudo wget https://github.com/derailed/k9s/releases/latest/download/k9s_linux_amd64.deb && mv ./k9s_linux_amd64.deb /tmp/ && sudo apt install /tmp/k9s_linux_amd64.deb && sudo rm /tmp/k9s_linux_amd64.deb
+fi
+
+if [ ! -d ~/.kube ]; then
+  mkdir ~/.kube
+  sudo cp -i /etc/kubernetes/admin.conf ~/.kube/config
+  sudo chown $(id -u):$(id -g) ~/.kube/config
+fi
+EOC
+
+echo "Installing Octavia preconf"
+ssh -o ForwardAgent=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -t ${SSH_USERNAME}@${JUMP_HOST_VIP} << 'EOC'
+set -e
+
+if [ ! -f ~/.config/openstack ]; then
+  sudo cp -r /root/.config/openstack ~/.config/
+fi
+
+source ~/.venvs/genestack/bin/activate
+
+OCTAVIA_HELM_FILE=/tmp/octavia_helm_overrides.yaml
+
+ANSIBLE_SSH_PIPELINING=0 ansible-playbook /opt/genestack/ansible/playbooks/octavia-preconf-main.yaml \
+  -e octavia_os_password=$(/usr/local/bin/kubectl get secrets keystone-admin -n openstack -o jsonpath='{.data.password}' | base64 -d) \
+  -e octavia_os_region_name=$(sudo ~/.venvs/genestack/bin/openstack --os-cloud=default endpoint list --service keystone --interface internal -c Region -f value) \
+  -e octavia_os_auth_url=$(sudo ~/.venvs/genestack/bin/openstack --os-cloud=default endpoint list --service keystone --interface internal -c URL -f value) \
+  -e octavia_os_endpoint_type=internal \
+  -e octavia_helm_file=$OCTAVIA_HELM_FILE \
+  -e interface=internal \
+  -e endpoint_type=internal
+
+echo "Installing Octavia"
+sudo /opt/genestack/bin/install-octavia.sh -f $OCTAVIA_HELM_FILE
 EOC
 
 { cat | tee /tmp/output.txt; } <<EOF
