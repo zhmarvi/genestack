@@ -7,12 +7,14 @@ the metrics. The short-lived job can push metrics to the gateway and terminate.
 In particular, _Genestack_ can use the _pushgateway_ to collect metrics from
 the OVN backup _CronJob_.
 
-#### Install the Prometheus Pushgateway Helm Chart
+## Installation
 
+Install the PushGateway Exporter
 
-``` shell
-bin/install-chart.sh prometheus-pushgateway
-```
+??? example "`/opt/genestack/bin/install-prometheus-pushgateway.sh`"
 
-!!! success
-    If the installation is successful, you should see the prometheus-pushgateway pod running in the prometheus namespace.
+    ``` shell
+    --8<-- "bin/install-prometheus-pushgateway.sh"
+    ```
+
+If the installation is successful, you should see the prometheus-pushgateway pod running in the prometheus namespace.

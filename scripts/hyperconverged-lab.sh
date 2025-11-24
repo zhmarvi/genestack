@@ -89,8 +89,11 @@ done
 
 if [ -z "${ACME_EMAIL}" ]; then
   read -rp "Enter a valid email address for use with ACME, press enter to skip: " ACME_EMAIL
-  export ACME_EMAIL="${ACME_EMAIL:-}"
 fi
+
+# Use of ACME_EMAIL to default Email
+ACME_EMAIL="${ACME_EMAIL:-example@aol.com}"
+export ACME_EMAIL
 
 if [ -z "${GATEWAY_DOMAIN}" ]; then
   echo "The domain name for the gateway is required, if you do not have a domain name press enter to use the default"
@@ -721,6 +724,10 @@ conf:
       workers: 1
     oslo_messaging_notifications:
       driver: noop
+    libvirt:
+      virt_type  = qemu
+      images_type = qcow2
+      images_path = /var/lib/nova/instances
   nova_api_uwsgi:
     uwsgi:
       processes: 1
