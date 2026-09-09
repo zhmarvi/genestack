@@ -1,11 +1,50 @@
-# Designate Prometheus and Alerting Rules (DEPRECATED as of 2026.2.0)
+# Designate Prometheus and Alerting Rules
 
-Add additional alerting rules in /etc/genestack/helm-configs/kube-prometheus-stack/rules/designate_prometheus_rules.yaml
- 
+Designate (DNS) metrics are collected by the
+[openstack-metrics-exporter](prometheus-openstack-metrics-exporter.md)
+(`prometheus-openstack-metrics-exporter`) with the `dns` service enabled. The
+exporter ships its own `ServiceMonitor`, so kube-prometheus-stack's Prometheus
+scrapes the `openstack_designate_*` metrics directly. There is no separate
+Designate exporter to deploy.
 
-## Add extra rules for prometheus to scrape metrics
+!!! note "Metrics source"
 
-```bash
+    The `dns` service is already enabled in
+    [`base-helm-configs/openstack-metrics-exporter/openstack-metrics-exporter-helm-overrides.yaml`](https://github.com/rackerlabs/genestack/blob/main/base-helm-configs/openstack-metrics-exporter/openstack-metrics-exporter-helm-overrides.yaml)
+    under `multicloud.clouds[].services`. If Designate metrics are missing,
+    confirm `- dns` is present (and uncommented) in that list and that the
+    exporter is deployed. See [OpenStack Exporter](prometheus-openstack-metrics-exporter.md).
+
+    OpenTelemetry is a separate collection track (host, libvirt, mysql,
+    rabbitmq, memcached, and the `prometheus/infra` scrape jobs) and does not
+    scrape the openstack-metrics-exporter. Designate resource metrics reach
+    Prometheus through the exporter's own ServiceMonitor, not through the OTel
+    pipeline, so no OpenTelemetry change is required for these alerts.
+
+## Add Designate alerting rules
+
+Alerting rules are added through the kube-prometheus-stack
+`additionalPrometheusRulesMap` directive, following the pattern described in
+[Alerting Rules](alerting-info.md). A ready-to-use rules file is checked in at
+[`base-helm-configs/kube-prometheus-stack/rules/designate_prometheus_rules.yaml`](https://github.com/rackerlabs/genestack/blob/main/base-helm-configs/kube-prometheus-stack/rules/designate_prometheus_rules.yaml).
+
+To activate the rules, copy that file into your override location:
+
+```shell
+mkdir -p /etc/genestack/helm-configs/kube-prometheus-stack/rules
+cp /opt/genestack/base-helm-configs/kube-prometheus-stack/rules/designate_prometheus_rules.yaml \
+  /etc/genestack/helm-configs/kube-prometheus-stack/rules/designate_prometheus_rules.yaml
+```
+
+Then re-run the Prometheus deployment to apply them:
+
+```shell
+/opt/genestack/bin/install-kube-prometheus-stack.sh
+```
+
+The rules file contains:
+
+```yaml
 additionalPrometheusRulesMap:
   openstack-resource-alerts:
     groups:
