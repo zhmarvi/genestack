@@ -120,6 +120,9 @@ ceilometer_keystone_admin_password=$(generate_password 32)
 ceilometer_keystone_test_password=$(generate_password 32)
 ceilometer_rabbitmq_password=$(generate_password 32)
 swift_rabbitmq_password=$(generate_password 32)
+swift_admin_password=$(generate_password 32)
+swift_hash_path_suffix=$(generate_password 32)
+swift_hash_path_prefix=$(generate_password 32)
 memcached_shared_secret=$(generate_password 32)
 grafana_secret=$(generate_password 32)
 grafana_root_secret=$(generate_password 32)
@@ -849,6 +852,25 @@ type: Opaque
 data:
   username: $(echo -n "swift" | base64)
   password: $(echo -n $swift_rabbitmq_password | base64 -w0)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: swift-admin
+  namespace: openstack
+type: Opaque
+data:
+  password: $(echo -n $swift_admin_password | base64 -w0)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: swift-hash-path
+  namespace: openstack
+type: Opaque
+data:
+  suffix: $(echo -n $swift_hash_path_suffix | base64 -w0)
+  prefix: $(echo -n $swift_hash_path_prefix | base64 -w0)
 ---
 apiVersion: v1
 kind: Secret

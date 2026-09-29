@@ -1,0 +1,27 @@
+---
+# Downstream (client -> Envoy) settings for the swift-https listener. Must live
+# in the Gateway's namespace. A sectionName-scoped policy REPLACES the
+# Gateway-scoped flex-gateway-client-policy rather than merging with it, so
+# clientIPDetection is re-declared here or swift loses XFF parsing.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: flex-gateway-swift-policy
+  namespace: envoy-gateway
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: flex-gateway
+      sectionName: swift-https
+  clientIPDetection:
+    xForwardedFor:
+      numTrustedHops: 2
+  connection:
+    bufferLimit: 16Mi
+  timeout:
+    http:
+      idleTimeout: 3600s
+  http2:
+    initialStreamWindowSize: 4Mi
+    initialConnectionWindowSize: 16Mi

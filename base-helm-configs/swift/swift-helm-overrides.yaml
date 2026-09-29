@@ -1,0 +1,245 @@
+---
+labels:
+  api:
+    node_selector_key: openstack-control-plane
+    node_selector_value: enabled
+  job:
+    node_selector_key: openstack-control-plane
+    node_selector_value: enabled
+  test:
+    node_selector_key: openstack-control-plane
+    node_selector_value: enabled
+  storage:
+    node_selector_key: openstack-storage-node
+    node_selector_value: enabled
+
+images:
+  tags:
+    bootstrap: "ghcr.io/rackerlabs/genestack-images/openstack-client:2026.1-latest"
+    dep_check: "ghcr.io/rackerlabs/genestack-images/kubernetes-entrypoint:latest"
+    image_repo_sync: null
+    ks_endpoints: "ghcr.io/rackerlabs/genestack-images/openstack-client:2026.1-latest"
+    ks_service: "ghcr.io/rackerlabs/genestack-images/openstack-client:2026.1-latest"
+    ks_user: "ghcr.io/rackerlabs/genestack-images/openstack-client:2026.1-latest"
+    swift_account: "quay.io/airshipit/swift:2026.1-ubuntu_noble"
+    swift_container: "quay.io/airshipit/swift:2026.1-ubuntu_noble"
+    swift_object: "quay.io/airshipit/swift:2026.1-ubuntu_noble"
+    swift_proxy: "quay.io/airshipit/swift:2026.1-ubuntu_noble"
+    swift_ring_builder: "quay.io/airshipit/swift:2026.1-ubuntu_noble"
+    swift_storage: "quay.io/airshipit/swift:2026.1-ubuntu_noble"
+    swift_storage_init: "quay.io/airshipit/swift:2026.1-ubuntu_noble"
+    test: null
+
+pod:
+  affinity:
+    anti:
+      type:
+        default: requiredDuringSchedulingIgnoredDuringExecution
+  replicas:
+    proxy: 3
+  lifecycle:
+    upgrades:
+      deployments:
+        revision_history: 3
+        pod_replacement_strategy: RollingUpdate
+        rolling_update:
+          max_unavailable: 1
+          max_surge: 3
+      daemonsets:
+        storage:
+          enabled: true
+          min_ready_seconds: 0
+          max_unavailable: 1
+    termination_grace_period:
+      proxy:
+        timeout: 60
+      storage:
+        timeout: 60
+  pdb:
+    proxy:
+      minAvailable: 2
+    storage:
+      minAvailable: 1
+  resources:
+    enabled: true
+    proxy:
+      requests:
+        memory: "512Mi"
+        cpu: "200m"
+      limits: {}
+    storage:
+      requests:
+        memory: "512Mi"
+        cpu: "200m"
+      limits: {}
+  # Storage servers bind host ports and manage the on-disk devices under
+  # /srv/node, so the daemonset keeps the upstream privileged context. The
+  # proxy is a plain WSGI service and does not need it.
+  security_context:
+    swift:
+      pod:
+        runAsUser: 0
+      container:
+        swift_proxy:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          privileged: false
+        swift_account:
+          privileged: true
+          readOnlyRootFilesystem: false
+        swift_container:
+          privileged: true
+          readOnlyRootFilesystem: false
+        swift_object:
+          privileged: true
+          readOnlyRootFilesystem: false
+        swift_storage_init:
+          privileged: true
+          readOnlyRootFilesystem: false
+        swift_ring_builder:
+          privileged: true
+          readOnlyRootFilesystem: false
+        swift_ring_copy:
+          privileged: true
+          readOnlyRootFilesystem: false
+
+# Rings are built once and shared with every storage pod, so the claim must be
+# ReadWriteMany. `devices` is intentionally empty: the list is site specific and
+# every entry must already be mounted at /srv/node/<name> on the labelled
+# storage nodes before the ring-builder job runs. See docs/openstack-swift.md.
+ring:
+  partition_power: 10
+  replicas: 3
+  min_part_hours: 24
+  devices: []
+  shared_storage:
+    name: swift-shared-storage
+    storageClassName: general-multi-attach
+    size: 1Gi
+    mount_path: "/etc/swift-rings"
+
+conf:
+  swift:
+    storage_policies:
+      - name: Policy-0
+        index: 0
+        default: "yes"
+  proxy_server:
+    DEFAULT:
+      bind_ip: 0.0.0.0
+      bind_port: 8080
+      workers: 4
+      log_level: INFO
+    "app:proxy-server":
+      use: egg:swift#proxy
+      account_autocreate: "true"
+      allow_account_management: "true"
+      node_timeout: 60
+      recoverable_node_timeout: 30
+    "filter:keystoneauth":
+      use: egg:swift#keystoneauth
+      operator_roles: admin,member,swiftoperator
+      reseller_admin_role: ResellerAdmin
+      reseller_prefix: AUTH_
+    "filter:authtoken":
+      paste.filter_factory: keystonemiddleware.auth_token:filter_factory
+      auth_type: password
+      delay_auth_decision: "True"
+      memcache_security_strategy: ENCRYPT
+      project_domain_name: default
+      project_name: service
+      service_token_roles_required: "true"
+      user_domain_name: default
+      username: swift
+    "filter:ratelimit":
+      use: egg:swift#ratelimit
+      account_ratelimit: 0
+    "filter:slo":
+      use: egg:swift#slo
+      max_manifest_segments: 10000
+  account_server:
+    DEFAULT:
+      workers: 2
+      log_level: INFO
+  container_server:
+    DEFAULT:
+      workers: 2
+      log_level: INFO
+  object_server:
+    DEFAULT:
+      workers: 2
+      log_level: INFO
+
+dependencies:
+  static:
+    ks_endpoints:
+      jobs:
+        - swift-ks-service
+      services:
+        - endpoint: internal
+          service: identity
+    ks_service:
+      services:
+        - endpoint: internal
+          service: identity
+    ks_user:
+      services:
+        - endpoint: internal
+          service: identity
+    proxy:
+      daemonset:
+        - swift-storage
+      jobs:
+        - swift-ring-builder
+        - swift-ks-user
+        - swift-ks-endpoints
+      services:
+        - endpoint: internal
+          service: identity
+        - endpoint: internal
+          service: oslo_cache
+    ring_builder:
+      jobs: null
+      services: null
+    storage:
+      jobs:
+        - swift-ring-builder
+      services: null
+
+endpoints:
+  fluentd:
+    namespace: fluentbit
+  identity:
+    port:
+      api:
+        default: 5000
+        internal: 5000
+        public: 80
+        service: 5000
+  object_store:
+    hosts:
+      default: swift-proxy
+      public: swift
+    path:
+      default: /v1/AUTH_%(tenant_id)s
+    port:
+      api:
+        default: 8080
+        internal: 8080
+        public: 80
+        service: 8080
+  oslo_cache:
+    host_fqdn_override:
+      default: memcached.openstack.svc.cluster.local
+    hosts:
+      default: memcached
+    statefulset:
+      name: memcached-memcached
+      replicas: 3
+
+manifests:
+  certificates: false
+  job_bootstrap: false
+  job_image_repo_sync: false
+  network_policy: false
+  pod_test: false

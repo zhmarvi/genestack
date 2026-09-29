@@ -1,0 +1,23 @@
+---
+# Upstream (Envoy -> swift-proxy) settings. Must live in the HTTPRoute's
+# namespace. The default route timeout truncates large object transfers, so it
+# is raised here. If custom-swift-gateway-route ever gains
+# spec.rules[].timeouts, the route wins and this timeout block is ignored.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: swift-bulk-transfer
+  namespace: openstack
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: custom-swift-gateway-route
+  connection:
+    bufferLimit: 16Mi
+  timeout:
+    tcp:
+      connectTimeout: 30s
+    http:
+      requestTimeout: 7200s
+      connectionIdleTimeout: 3600s

@@ -1,0 +1,10 @@
+---
+sortOptions:
+  order: fifo
+resources:
+  - swift-rabbitmq-queue.yaml
+  - all.yaml
+  - hpa-swift-proxy.yaml
+  - policies.yaml
+  - swift-clienttrafficpolicy.yaml
+  - swift-backendtrafficpolicy.yaml

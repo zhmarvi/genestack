@@ -1,0 +1,86 @@
+---
+# Swift itself does not use oslo.messaging. This vhost exists so the Swift
+# proxy's ceilometermiddleware can publish objectstore notifications, which is
+# the transport bin/install-ceilometer.sh already reads for the swift vhost.
+apiVersion: rabbitmq.com/v1beta1
+kind: User
+metadata:
+  name: swift
+  namespace: openstack
+  labels:
+    app.kubernetes.io/managed-by: "Helm"
+  annotations:
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: "swift"
+    meta.helm.sh/release-namespace: "openstack"
+spec:
+  tags:
+    - management
+    - policymaker
+  rabbitmqClusterReference:
+    name: rabbitmq
+    namespace: openstack
+  importCredentialsSecret:
+    name: swift-rabbitmq-password
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Vhost
+metadata:
+  name: swift-vhost
+  namespace: openstack
+  labels:
+    app.kubernetes.io/managed-by: "Helm"
+  annotations:
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: "swift"
+    meta.helm.sh/release-namespace: "openstack"
+spec:
+  name: "swift"
+  defaultQueueType: quorum
+  rabbitmqClusterReference:
+    name: rabbitmq
+    namespace: openstack
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Queue
+metadata:
+  name: swift-queue
+  namespace: openstack
+  labels:
+    app.kubernetes.io/managed-by: "Helm"
+  annotations:
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: "swift"
+    meta.helm.sh/release-namespace: "openstack"
+spec:
+  name: swift-qq
+  vhost: "swift"
+  type: quorum
+  autoDelete: false
+  durable: true
+  rabbitmqClusterReference:
+    name: rabbitmq
+    namespace: openstack
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Permission
+metadata:
+  name: swift-permission
+  namespace: openstack
+  labels:
+    app.kubernetes.io/managed-by: "Helm"
+  annotations:
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: "swift"
+    meta.helm.sh/release-namespace: "openstack"
+spec:
+  vhost: "swift"
+  userReference:
+    name: "swift"
+  permissions:
+    write: ".*"
+    configure: ".*"
+    read: ".*"
+  rabbitmqClusterReference:
+    name: rabbitmq
+    namespace: openstack

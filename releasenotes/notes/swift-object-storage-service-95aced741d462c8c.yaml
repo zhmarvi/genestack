@@ -1,0 +1,77 @@
+---
+features:
+  - |
+    Swift is now a deployable Genestack service. The integration follows the
+    same layout as the other OpenStack services: chart values in
+    ``base-helm-configs/swift/``, a post-render overlay in
+    ``base-kustomize/swift/base/``, and an installer at
+    ``bin/install-swift.sh``. The chart is pulled from the OpenStack-Helm
+    tarball repository and pinned in ``helm-chart-versions.yaml`` at
+    ``2026.1.26+0ee5adeff``.
+
+    .. code-block:: shell
+
+      /opt/genestack/bin/install-swift.sh
+
+    ``bin/setup-openstack.sh`` now prompts for Swift and installs it when
+    ``swift: true`` is set in ``openstack-components.yaml``.
+  - |
+    ``bin/create-secrets.sh`` generates two new secrets in addition to the
+    existing ``swift-rabbitmq-password``:
+
+    * ``swift-admin`` holds the Keystone password for the ``swift`` service
+      user.
+    * ``swift-hash-path`` holds the ``suffix`` and ``prefix`` used to seed
+      Swift's path hashing. ``install-swift.sh`` reads them from the secret
+      rather than from the overrides so that reinstalling the chart cannot
+      regenerate them.
+  - |
+    Swift is exposed through the Gateway API rather than a chart-rendered
+    ingress. ``etc/gateway-api/listeners/swift-https.json`` adds a
+    ``swift-https`` listener and
+    ``etc/gateway-api/routes/custom-swift-gateway-route.yaml`` routes it to the
+    ``swift-proxy`` service on port 8080. The overlay also ships a
+    ``ClientTrafficPolicy`` and ``BackendTrafficPolicy`` scoped to that
+    listener and route, raising the Envoy route timeout and connection buffers
+    so that large object transfers are not truncated by the gateway defaults.
+  - |
+    The ``swift`` RabbitMQ vhost, user, quorum queue, and quorum policy are now
+    declared as operator resources in ``base-kustomize/swift/base`` with the
+    same Helm ownership annotations and ``helm.sh/resource-policy: keep`` used
+    by the other services. Swift does not use oslo.messaging itself; the vhost
+    exists for the Swift proxy's ``ceilometermiddleware``, and
+    ``bin/install-ceilometer.sh`` already builds a transport URL against it.
+    This supersedes the unannotated ``manifests/swift/rabbitmq-queue.yaml``.
+upgrade:
+  - |
+    Swift requires block devices to be mounted at ``/srv/node/<name>`` on every
+    node labelled ``openstack-storage-node=enabled`` before the chart is
+    deployed. The shipped ``ring.devices`` list is empty on purpose, because
+    device names are site specific, and the storage servers run with
+    ``mount_check = true`` so an unmounted path is skipped rather than filled
+    on the root filesystem. Declare the devices and the ring geometry in
+    ``/etc/genestack/helm-configs/swift/swift-helm-overrides.yaml``.
+
+    ``ring.partition_power`` cannot be changed without rebuilding the rings.
+    The shipped value of ``10`` suits a lab; production clusters generally want
+    ``14`` or higher.
+  - |
+    Swift ring files are shared between the ring-builder job and every storage
+    pod through a ``ReadWriteMany`` claim. The claim defaults to the
+    ``general-multi-attach`` storage class; override
+    ``ring.shared_storage.storageClassName`` on clusters that expose a
+    different RWX class.
+other:
+  - |
+    Unlike every other OpenStack service in Genestack, Swift is deployed
+    without a MariaDB database or an oslo.messaging transport. Account and
+    container metadata live in per-device sqlite databases on the storage
+    nodes, and object placement is driven by the rings, so
+    ``bin/install-swift.sh`` passes no ``endpoints.oslo_db`` arguments and the
+    overlay contains no ``Database``, ``User``, or ``Grant`` resources for
+    mariadb-operator.
+  - |
+    The OpenStack-Helm Swift chart images are pulled from
+    ``quay.io/airshipit/swift`` because Genestack does not publish a Swift
+    image. The Keystone bootstrap jobs and dependency checks still use the
+    Genestack ``openstack-client`` and ``kubernetes-entrypoint`` images.
