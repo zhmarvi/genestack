@@ -4,6 +4,14 @@ OpenStack Swift is the object storage service of the OpenStack platform. It stor
 
 > Swift is the one OpenStack service in Genestack that uses neither MariaDB nor a message queue on its data path. Account and container metadata live in sqlite databases on the storage devices themselves, and object placement is driven by the rings rather than a central database.
 
+!!! genestack "Object storage has two backend options"
+
+    Genestack can serve the Object Store with native Swift, documented here, or
+    with an external Ceph RADOS Gateway. They register the same service and
+    endpoints and cannot run together. Review
+    [Object Storage Backend Options](openstack-object-storage-backends.md) before
+    deploying, particularly if object storage usage feeds billing.
+
 ## Prerequisites
 
 Swift stores objects on the block devices of the nodes running the `swift-storage` daemonset, so the devices and node labels must exist before the chart is deployed.

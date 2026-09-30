@@ -211,7 +211,9 @@ nav:
                           - Worker: openstack-cinder-netapp-worker.md
                       - FIPS Cinder Encryption: openstack-cinder-fips-encryption.md
                   - Object Storage:
+                      - Backend Options: openstack-object-storage-backends.md
                       - Swift: openstack-swift.md
+                      - External Ceph RGW: openstack-object-storage-rgw.md
                   - Compute Kit:
                       - Compute Overview: openstack-compute-kit.md
                       - Secrets: openstack-compute-kit-secrets.md
