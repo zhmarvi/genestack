@@ -1,0 +1,201 @@
+---
+# =========================================================================
+# Register an external Ceph RADOS Gateway as the OpenStack object-store
+# (Swift) endpoint.
+#
+# This role does NOT deploy Swift. RGW serves the Swift API itself; this
+# only points the Keystone service catalog at it and creates the service
+# user RGW uses to validate tokens. The matching rgw_keystone_* settings
+# must be applied on the Ceph cluster -- see the summary this role prints.
+#
+# Usage:
+#   ansible-playbook /opt/genestack/ansible/playbooks/deploy-rgw-object-store.yaml \
+#     -e rgw_public_url=https://objects.your.domain.tld
+# =========================================================================
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - rgw_public_url | length > 0
+      - rgw_public_url is match('^https?://')
+    fail_msg: >-
+      rgw_public_url must be set to the external RGW frontend base URL,
+      for example -e rgw_public_url=https://objects.your.domain.tld
+    quiet: true
+
+- name: Read Keystone service user password from Kubernetes secret
+  when: rgw_keystone_password | length == 0
+  block:
+    - name: Fetch the service user secret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ rgw_keystone_password_secret }}"
+        namespace: "{{ rgw_keystone_password_secret_namespace }}"
+      register: rgw_keystone_secret
+      no_log: true
+
+    - name: Fail when the secret is missing
+      ansible.builtin.assert:
+        that:
+          - rgw_keystone_secret.resources | length > 0
+        fail_msg: >-
+          Secret {{ rgw_keystone_password_secret }} not found in namespace
+          {{ rgw_keystone_password_secret_namespace }}. Run
+          /opt/genestack/bin/create-secrets.sh or pass -e rgw_keystone_password=...
+        quiet: true
+
+    - name: Set the service user password fact
+      ansible.builtin.set_fact:
+        rgw_keystone_password: "{{ rgw_keystone_secret.resources[0].data.password | b64decode }}"
+      no_log: true
+
+# --- Keystone service user -------------------------------------------------
+
+- name: Ensure the RGW Keystone service user exists with the expected password
+  ansible.builtin.shell: |
+    set -e
+    if openstack --os-cloud {{ os_cloud }} user show \
+         --domain '{{ rgw_keystone_user_domain }}' '{{ rgw_keystone_user }}' >/dev/null 2>&1; then
+      openstack --os-cloud {{ os_cloud }} user set \
+        --password "$RGW_KEYSTONE_PASSWORD" '{{ rgw_keystone_user }}'
+    else
+      openstack --os-cloud {{ os_cloud }} user create '{{ rgw_keystone_user }}' \
+        --domain '{{ rgw_keystone_user_domain }}' \
+        --project '{{ rgw_keystone_project }}' \
+        --project-domain '{{ rgw_keystone_project_domain }}' \
+        --password "$RGW_KEYSTONE_PASSWORD"
+    fi
+  environment:
+    RGW_KEYSTONE_PASSWORD: "{{ rgw_keystone_password }}"
+  register: rgw_user_result
+  changed_when: true
+  failed_when: false
+  no_log: true
+
+# no_log above hides the failure detail, so surface the return code on its own.
+- name: Fail when the service user could not be created or updated
+  ansible.builtin.fail:
+    msg: >-
+      Could not create or update Keystone user {{ rgw_keystone_user }}
+      (rc={{ rgw_user_result.rc }}). Check that the admin credentials for
+      --os-cloud {{ os_cloud }} are valid and that project
+      {{ rgw_keystone_project }} exists in domain {{ rgw_keystone_project_domain }}.
+  when: rgw_user_result.rc != 0
+
+- name: Ensure roles RGW accepts exist
+  ansible.builtin.command:
+    cmd: >-
+      openstack --os-cloud {{ os_cloud }} role create --or-show {{ item }}
+  loop: "{{ rgw_keystone_accepted_roles }}"
+  changed_when: false
+
+- name: Grant the admin role to the service user on the service project
+  ansible.builtin.command:
+    cmd: >-
+      openstack --os-cloud {{ os_cloud }} role add
+      --project '{{ rgw_keystone_project }}'
+      --project-domain '{{ rgw_keystone_project_domain }}'
+      --user '{{ rgw_keystone_user }}'
+      --user-domain '{{ rgw_keystone_user_domain }}'
+      admin
+  changed_when: false
+  failed_when: false
+
+# --- Service catalog -------------------------------------------------------
+
+- name: Ensure the object-store service entry exists
+  ansible.builtin.command:
+    cmd: >-
+      openstack --os-cloud {{ os_cloud }} service create --or-show
+      --name swift --description "OpenStack Object Store (Ceph RGW)"
+      object-store
+  changed_when: false
+
+- name: Build the Swift API path served by RGW
+  ansible.builtin.set_fact:
+    rgw_swift_endpoint_path: >-
+      {{ '/' ~ rgw_swift_url_prefix ~ '/v1' ~ ('/AUTH_%(tenant_id)s' if rgw_swift_account_in_url | bool else '') }}
+
+- name: Build per-interface endpoint URLs
+  ansible.builtin.set_fact:
+    rgw_endpoint_urls:
+      public: "{{ (rgw_public_url | regex_replace('/+$', '')) ~ (rgw_swift_endpoint_path | trim) }}"
+      internal: "{{ (rgw_internal_url | regex_replace('/+$', '')) ~ (rgw_swift_endpoint_path | trim) }}"
+      admin: "{{ (rgw_admin_url | regex_replace('/+$', '')) ~ (rgw_swift_endpoint_path | trim) }}"
+
+- name: Look up existing object-store endpoints
+  ansible.builtin.command:
+    cmd: >-
+      openstack --os-cloud {{ os_cloud }} endpoint list
+      --service object-store --interface {{ item.key }}
+      --region '{{ rgw_region_name }}' -f value -c ID
+  loop: "{{ rgw_endpoint_urls | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: rgw_existing_endpoints
+  changed_when: false
+  failed_when: false
+
+# Updating in place rather than skipping lets the role correct an endpoint
+# whose URL changed, which is the common case when the RGW address moves.
+- name: Create or update the object-store endpoints
+  ansible.builtin.shell: |
+    set -e
+    existing="{{ item.stdout | trim }}"
+    if [ -n "${existing}" ]; then
+      for id in ${existing}; do
+        openstack --os-cloud {{ os_cloud }} endpoint set --url '{{ item.item.value }}' "${id}"
+      done
+    else
+      openstack --os-cloud {{ os_cloud }} endpoint create \
+        --region '{{ rgw_region_name }}' \
+        object-store '{{ item.item.key }}' '{{ item.item.value }}'
+    fi
+  loop: "{{ rgw_existing_endpoints.results }}"
+  loop_control:
+    label: "{{ item.item.key }} -> {{ item.item.value }}"
+  changed_when: true
+
+# --- Operator summary ------------------------------------------------------
+
+- name: Show the Ceph-side configuration that must match
+  ansible.builtin.debug:
+    msg:
+      - "Registered object-store endpoints:"
+      - "  public   {{ rgw_endpoint_urls.public }}"
+      - "  internal {{ rgw_endpoint_urls.internal }}"
+      - "  admin    {{ rgw_endpoint_urls.admin }}"
+      - ""
+      - "Apply the matching settings on the external Ceph cluster:"
+      - "  ceph config set client.rgw rgw_keystone_api_version 3"
+      - "  ceph config set client.rgw rgw_keystone_url <keystone public or internal URL>"
+      - "  ceph config set client.rgw rgw_keystone_admin_user {{ rgw_keystone_user }}"
+      - "  ceph config set client.rgw rgw_keystone_admin_project {{ rgw_keystone_project }}"
+      - "  ceph config set client.rgw rgw_keystone_admin_domain {{ rgw_keystone_user_domain }}"
+      - "  ceph config set client.rgw rgw_keystone_admin_password_path <path to password file>"
+      - "  ceph config set client.rgw rgw_keystone_accepted_roles {{ rgw_keystone_accepted_roles | join(',') }}"
+      - "  ceph config set client.rgw rgw_keystone_implicit_tenants swift"
+      - "  ceph config set client.rgw rgw_swift_url_prefix {{ rgw_swift_url_prefix }}"
+      - "  ceph config set client.rgw rgw_swift_account_in_url {{ rgw_swift_account_in_url | bool | lower }}"
+      - ""
+      - "The service user password is in secret {{ rgw_keystone_password_secret }}
+         (namespace {{ rgw_keystone_password_secret_namespace }}, key password)."
+
+- name: Verify the endpoint answers
+  when: rgw_verify_endpoint | bool
+  block:
+    - name: Query the object store account
+      ansible.builtin.command:
+        cmd: openstack --os-cloud {{ os_cloud }} object store account show
+      register: rgw_access_test
+      changed_when: false
+      failed_when: false
+
+    - name: Report the verification result
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Object store reachable through RGW.' if rgw_access_test.rc == 0
+          else 'WARNING: object store request failed. Confirm the Ceph-side rgw_keystone_* settings
+          are applied and that rgw_swift_account_in_url matches the registered endpoint path. Error: '
+          ~ (rgw_access_test.stderr | default('') | trim) }}

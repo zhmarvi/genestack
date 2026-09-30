@@ -1,0 +1,17 @@
+---
+# Register an external Ceph RADOS Gateway as the OpenStack object-store
+# (Swift) endpoint. Does not deploy Swift; RGW serves the Swift API itself.
+#
+# Usage:
+#   ansible-playbook /opt/genestack/ansible/playbooks/deploy-rgw-object-store.yaml \
+#     -e rgw_public_url=https://objects.your.domain.tld
+#
+#   ansible-playbook /opt/genestack/ansible/playbooks/deploy-rgw-object-store.yaml \
+#     -e rgw_public_url=https://objects.your.domain.tld \
+#     -e rgw_internal_url=http://rgw.ceph.svc.your.domain.tld:8080 \
+#     -e rgw_region_name=RegionOne
+
+- name: Register external Ceph RGW as the object store
+  hosts: localhost
+  roles:
+    - role: ceph_rgw_object_store

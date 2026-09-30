@@ -1,0 +1,42 @@
+---
+# defaults file for ceph_rgw_object_store
+# OpenStack cloud name for CLI commands
+os_cloud: default
+# Region used for Keystone endpoint registration
+rgw_region_name: RegionOne
+
+# Base URL of the external RGW frontend, scheme://host[:port], no path.
+# Required; the role fails early when unset.
+rgw_public_url: ""
+# Internal and admin interfaces default to the public URL. Override when the
+# RGW frontend is reachable on a separate address from inside the cluster.
+rgw_internal_url: "{{ rgw_public_url }}"
+rgw_admin_url: "{{ rgw_internal_url }}"
+
+# These two MUST match the external Ceph cluster. Mismatches produce 404s on
+# every object request rather than an obvious failure.
+#   ceph config set client.rgw rgw_swift_url_prefix       <rgw_swift_url_prefix>
+#   ceph config set client.rgw rgw_swift_account_in_url   <rgw_swift_account_in_url>
+rgw_swift_url_prefix: swift
+rgw_swift_account_in_url: true
+
+# Keystone service user that RGW authenticates as when validating tokens.
+rgw_keystone_user: swift
+rgw_keystone_user_domain: default
+rgw_keystone_project: service
+rgw_keystone_project_domain: default
+# Password source. When rgw_keystone_password is empty the role reads it from
+# the Kubernetes secret below, which is what bin/create-secrets.sh generates.
+rgw_keystone_password: ""
+rgw_keystone_password_secret: swift-admin
+rgw_keystone_password_secret_namespace: openstack
+
+# Roles RGW accepts for object access. Must match
+#   ceph config set client.rgw rgw_keystone_accepted_roles
+rgw_keystone_accepted_roles:
+  - admin
+  - member
+  - swiftoperator
+
+# Run a read-only account show against the new endpoint at the end.
+rgw_verify_endpoint: true
