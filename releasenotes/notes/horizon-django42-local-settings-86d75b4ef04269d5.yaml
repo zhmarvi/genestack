@@ -1,0 +1,23 @@
+---
+fixes:
+  - |
+    The Horizon ``local_settings`` template in
+    ``base-helm-configs/horizon/horizon-helm-overrides.yaml`` imported
+    ``ugettext_lazy``, which was removed in Django 4.0. Horizon loads
+    ``local_settings`` inside an ``except ImportError`` block, so the failed
+    import was swallowed and the entire file was silently ignored. Horizon then
+    ran on built-in defaults (empty ``ALLOWED_HOSTS``, Keystone URL pointing at
+    localhost, generated ``SECRET_KEY``). The template now imports
+    ``gettext_lazy``.
+  - |
+    The Horizon cache backend in the same template now uses
+    ``django.core.cache.backends.memcached.PyMemcacheCache`` instead of
+    ``MemcachedCache``, which was removed in Django 4.1. This matches the
+    openstack-helm chart default.
+upgrade:
+  - |
+    Operators who copied the Horizon ``local_settings`` template into their own
+    overrides under ``/etc/genestack/helm-configs/horizon`` should apply the
+    same two changes, then re-run ``/opt/genestack/bin/install-horizon.sh``.
+    After the upgrade, the Horizon pod logs should no longer contain
+    ``No local_settings file found``.
